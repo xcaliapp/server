@@ -1,0 +1,21 @@
+version: "3"
+
+vars:
+  WORKSPACE_DIR: "${HOME}/workspace/xcaliapp"
+  WEBCLIENT_DIST: '{{ .WEBCLIENT_DIST | default "../webclient/dist" }}'
+
+tasks:
+  plain:
+    cmds:
+      - |
+        go build -o xcaliapp-backend
+  with-webclient:
+    cmds:
+      - |
+        cp -a {{.WEBCLIENT_DIST}}/* webclient_dist/
+        go build -o xcaliapp-backend
+  run:
+    cmds:
+      - task: with-webclient
+      - |
+        ./xcaliapp-backend
