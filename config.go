@@ -1,8 +1,10 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 )
 
 type drawingStoreType int
@@ -31,4 +33,18 @@ func getDrawingStoreLocation() string {
 		return envvar
 	}
 	return filepath.Join(os.Getenv("HOME"), ".xcaliapp", "drawing-store")
+}
+
+const DefaultServerPort = 8080
+
+func getServerPort() int {
+	envvar := os.Getenv("SERVER_PORT")
+	if len(envvar) > 0 {
+		port, err := strconv.Atoi(envvar)
+		if err != nil {
+			panic(fmt.Sprintf("failed to parse SERVER_PORT %s: %#v", envvar, err))
+		}
+		return port
+	}
+	return DefaultServerPort
 }

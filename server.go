@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 
@@ -26,14 +27,23 @@ type putDrawingRequest struct {
 	Content string `json:"content"`
 }
 
-func startServer(store drawingStore) {
+func startServer(port int, passwordCreds []passwordCredentials, store drawingStore) {
+	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+	if err != nil {
+		portSpec := fmt.Sprintf("port %d", port)
+		if port == 0 {
+			portSpec = "an ephemeral port"
+		}
+		panic(fmt.Sprintf("Error while starting to listen at %s: %v", portSpec, err))
+	}
+
 	rootEngine := gin.Default()
 	rootEngine.Use(RequestLogger)
 	sessionStore := memstore.NewStore([]byte("secret"))
 	rootEngine.Use(sessions.Sessions("mysession", sessionStore))
 	rootEngine.NoRoute(gin.WrapH(AssetHandler("/", "webclient_dist", getLogger())))
 	gob.Register(User{})
-	rootEngine.Use(checkBasicAuthentication(basicConfig{passwordCreds: s.config.passwordCreds}))
+	rootEngine.Use(checkBasicAuthentication(basicConfig{passwordCreds: passwordCreds}))
 
 	api := rootEngine.Group("/api")
 	api.GET("/drawings", func(c *gin.Context) {
@@ -97,7 +107,7 @@ func startServer(store drawingStore) {
 		c.JSON(200, content)
 	})
 
-	http.Serve(s.listener, rootEngine)
+	http.Serve(listener, rootEngine)
 }
 
 func getUserFromContext(c *gin.Context) (*User, error) {

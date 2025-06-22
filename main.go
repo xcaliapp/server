@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"gitstore"
-	"net"
 	"net/http"
 	"s3store"
 	"time"
@@ -14,39 +13,30 @@ import (
 )
 
 type server struct {
-	ctx      context.Context
-	listener net.Listener
-	config   options
+	ctx    context.Context
+	config options
 }
 
-var s = server{
-	ctx:      context.Background(),
-	listener: nil,
-	config: options{
-		8080,
-		[]passwordCredentials{{
-			Username: "peter.dunay.kovacs@gmail.com",
-			Password: "pass",
-		}},
-		LOCAL_GIT,
-		getDrawingStoreLocation(),
-	},
+func newServer() server {
+	return server{
+		ctx: context.Background(),
+		config: options{
+			getServerPort(),
+			[]passwordCredentials{{
+				Username: "peter.dunay.kovacs@gmail.com",
+				Password: "pass",
+			}},
+			LOCAL_GIT,
+			getDrawingStoreLocation(),
+		},
+	}
 }
 
 func main() {
-	var err error
-	s.listener, err = net.Listen("tcp", fmt.Sprintf(":%d", s.config.port))
-	if err != nil {
-		portSpec := fmt.Sprintf("port %d", s.config.port)
-		if s.config.port == 0 {
-			portSpec = "an ephemeral port"
-		}
-		panic(fmt.Sprintf("Error while starting to listen at %s: %v", portSpec, err))
-	}
-
+	s := newServer()
 	logger := getLogger()
 	logger.Info().Int("port", s.config.port).Msg("starting server...")
-	startServer(newDrawingStore(s))
+	startServer(s.config.port, s.config.passwordCreds, newDrawingStore(s))
 }
 
 func newDrawingStore(s server) drawingStore {
