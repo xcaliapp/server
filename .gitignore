@@ -1,2 +1,8 @@
 xcaliapp-backend
+xcaliapp_darwin_arm64
+xcaliapp_darwin_amd64
+xcaliapp_windows_arm64
+xcaliapp_windows_amd64
+xcaliapp_linux_arm64
+xcaliapp_linux_amd64
 /webclient_dist/*

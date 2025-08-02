@@ -1,6 +1,6 @@
 module myxcaliapp/backend
 
-go 1.23.4
+go 1.25
 
 require (
 	github.com/gin-contrib/sessions v1.0.4

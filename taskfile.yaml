@@ -12,10 +12,16 @@ tasks:
   with-webclient:
     cmds:
       - |
+        mkdir -p ./webclient_dist
         cp -a {{.WEBCLIENT_DIST}}/* webclient_dist/
-        go build -o xcaliapp-backend
+        output_file=xcaliapp
+        if [ -n "$GOARCH" ];
+        then
+          output_file="${output_file}_${GOOS}_${GOARCH}"
+        fi
+        go build -o $output_file
   run:
     cmds:
-      - task: with-webclient
+      - task: plain
       - |
         ./xcaliapp-backend
