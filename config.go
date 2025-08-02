@@ -36,6 +36,7 @@ func getDrawingStoreLocation() string {
 }
 
 const DefaultServerPort = 8080
+const defaultUsername = "peter.dunay.kovacs@gmail.com"
 
 func getServerPort() int {
 	envvar := os.Getenv("SERVER_PORT")
@@ -47,4 +48,12 @@ func getServerPort() int {
 		return port
 	}
 	return DefaultServerPort
+}
+
+func getUsername() string {
+	envvar := os.Getenv("XCALIAPP_USERNAME")
+	if len(envvar) > 0 {
+		return envvar
+	}
+	return defaultUsername
 }

@@ -23,7 +23,7 @@ func newServer() server {
 		config: options{
 			getServerPort(),
 			[]passwordCredentials{{
-				Username: "peter.dunay.kovacs@gmail.com",
+				Username: getUsername(),
 				Password: "pass",
 			}},
 			LOCAL_GIT,
