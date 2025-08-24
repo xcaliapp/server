@@ -25,12 +25,10 @@ type drawingStore interface {
 }
 
 type putDrawingRequest struct {
-	Title   string `json:"title"`
 	Content string `json:"content"`
 }
 
 type patchDrawingRequest struct {
-	Title    string `json:"title"`
 	NewTitle string `json:"newTitle"`
 }
 
@@ -62,11 +60,14 @@ func startServer(port int, passwordCreds []passwordCredentials, store drawingSto
 			c.AbortWithError(http.StatusInternalServerError, listErr)
 			return
 		}
+
 		c.JSON(http.StatusOK, titles)
 	})
 
-	api.PUT("/drawing", func(c *gin.Context) {
+	api.PUT("/drawing/:id", func(c *gin.Context) {
 		logger := zerolog.Ctx(c.Request.Context())
+
+		id := c.Param("id")
 
 		body, readBodyErr := io.ReadAll(c.Request.Body)
 		if readBodyErr != nil {
@@ -86,31 +87,31 @@ func startServer(port int, passwordCreds []passwordCredentials, store drawingSto
 
 		user, userExtractErr := getUserFromContext(c)
 		if userExtractErr != nil {
-			logger.Error().Err(userExtractErr).Str("title", requestData.Title).Msg("failed to extract user from context")
+			logger.Error().Err(userExtractErr).Str("title", id).Msg("failed to extract user from context")
 			c.AbortWithError(http.StatusInternalServerError, userExtractErr)
 			return
 		}
 
-		putDrawingErr := store.PutDrawing(c, requestData.Title, contentReader, user.Username)
+		putDrawingErr := store.PutDrawing(c, id, contentReader, user.Username)
 		if putDrawingErr != nil {
-			logger.Error().Err(putDrawingErr).Str("title", requestData.Title).Msg("failed to store drawing %s: %w")
+			logger.Error().Err(putDrawingErr).Str("title", id).Msg("failed to store drawing %s: %w")
 			c.AbortWithError(http.StatusInternalServerError, putDrawingErr)
 			return
 		}
 		c.Status(http.StatusOK)
 	})
 
-	api.GET("/drawing", func(c *gin.Context) {
+	api.GET("/drawing/:id", func(c *gin.Context) {
 		logger := zerolog.Ctx(c.Request.Context())
 
-		title := c.Query("title")
-		content, getContentErr := store.GetDrawing(c, title)
+		id := c.Param("id")
+		content, getContentErr := store.GetDrawing(c, id)
 		if getContentErr != nil {
-			logger.Error().Err(getContentErr).Str("title", title).Msg("failed to get drawing content")
+			logger.Error().Err(getContentErr).Str("title", id).Msg("failed to get drawing content")
 			c.AbortWithError(http.StatusInternalServerError, getContentErr)
 			return
 		}
-		logger.Debug().Str("title", title).Int("content length", len(content)).Msg("content found")
+		logger.Debug().Str("title", id).Int("content length", len(content)).Msg("content found")
 		c.JSON(http.StatusOK, content)
 	})
 
@@ -137,8 +138,10 @@ func startServer(port int, passwordCreds []passwordCredentials, store drawingSto
 		c.Status(http.StatusOK)
 	})
 
-	api.PATCH("/drawing", func(c *gin.Context) {
+	api.PATCH("/drawing/:id", func(c *gin.Context) {
 		logger := zerolog.Ctx(c.Request.Context())
+
+		id := c.Param("id")
 
 		body, readBodyErr := io.ReadAll(c.Request.Body)
 		if readBodyErr != nil {
@@ -156,7 +159,7 @@ func startServer(port int, passwordCreds []passwordCredentials, store drawingSto
 		logger.Debug().Interface("requestData", requestData).Send()
 		switch {
 		case len(requestData.NewTitle) > 0:
-			logger := logger.With().Str("title", requestData.Title).Str("newTitle", requestData.NewTitle).Logger()
+			logger := logger.With().Str("title", id).Str("newTitle", requestData.NewTitle).Logger()
 
 			user, userExtractErr := getUserFromContext(c)
 			if userExtractErr != nil {
@@ -164,13 +167,13 @@ func startServer(port int, passwordCreds []passwordCredentials, store drawingSto
 				c.AbortWithError(http.StatusInternalServerError, userExtractErr)
 				return
 			}
-			err = store.CopyDrawing(c, requestData.Title, requestData.NewTitle, user.Username)
+			err = store.CopyDrawing(c, id, requestData.NewTitle, user.Username)
 			if err != nil {
 				logger.Error().Err(err).Msg("failed to create the copy to subsist as the renamed object")
 				c.AbortWithError(http.StatusInternalServerError, err)
 				return
 			}
-			err = store.DeleteDrawing(c, requestData.Title, user.Username)
+			err = store.DeleteDrawing(c, id, user.Username)
 			if err != nil {
 				logger.Error().Err(err).Msg("failed to delete the object with the old name")
 				c.AbortWithError(http.StatusInternalServerError, err)
