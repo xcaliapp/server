@@ -50,6 +50,8 @@ func startServer(port int, passwordCreds []passwordCredentials, store drawingSto
 	gob.Register(User{})
 	rootEngine.Use(checkBasicAuthentication(basicConfig{passwordCreds: passwordCreds}))
 
+	rootEngine.GET("/drawings", gin.WrapH(AssetHandler("/", "webclient_dist", getLogger())))
+
 	api := rootEngine.Group("/api")
 	api.GET("/drawings", func(c *gin.Context) {
 		logger := zerolog.Ctx(c.Request.Context())
