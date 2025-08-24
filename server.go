@@ -18,13 +18,20 @@ import (
 
 type drawingStore interface {
 	PutDrawing(ctx context.Context, title string, contentReader io.Reader, modifiedBy string) error
+	CopyDrawing(ctx context.Context, sourceTitle string, destinationTitle string, modifiedBy string) error
 	ListDrawingTitles(ctx context.Context) ([]string, error)
 	GetDrawing(ctx context.Context, title string) (string, error)
+	DeleteDrawing(ctx context.Context, newTitle string, modifiedBy string) error
 }
 
 type putDrawingRequest struct {
 	Title   string `json:"title"`
 	Content string `json:"content"`
+}
+
+type patchDrawingRequest struct {
+	Title    string `json:"title"`
+	NewTitle string `json:"newTitle"`
 }
 
 func startServer(port int, passwordCreds []passwordCredentials, store drawingStore) {
@@ -52,10 +59,10 @@ func startServer(port int, passwordCreds []passwordCredentials, store drawingSto
 		titles, listErr := store.ListDrawingTitles(c)
 		if listErr != nil {
 			logger.Error().Err(listErr).Msg("failed to list drawing titles")
-			c.AbortWithError(500, listErr)
+			c.AbortWithError(http.StatusInternalServerError, listErr)
 			return
 		}
-		c.JSON(200, titles)
+		c.JSON(http.StatusOK, titles)
 	})
 
 	api.PUT("/drawing", func(c *gin.Context) {
@@ -64,14 +71,14 @@ func startServer(port int, passwordCreds []passwordCredentials, store drawingSto
 		body, readBodyErr := io.ReadAll(c.Request.Body)
 		if readBodyErr != nil {
 			logger.Error().Err(readBodyErr).Msg("failed to read request body")
-			c.AbortWithError(500, readBodyErr)
+			c.AbortWithError(http.StatusInternalServerError, readBodyErr)
 			return
 		}
 		var requestData putDrawingRequest
 		requestBodyUnmarshalErr := json.Unmarshal(body, &requestData)
 		if requestBodyUnmarshalErr != nil {
 			logger.Error().Err(requestBodyUnmarshalErr).Msg("failed to unmarshal request body")
-			c.AbortWithError(500, requestBodyUnmarshalErr)
+			c.AbortWithError(http.StatusInternalServerError, requestBodyUnmarshalErr)
 			return
 		}
 		logger.Debug().Str("content", requestData.Content).Send()
@@ -80,17 +87,17 @@ func startServer(port int, passwordCreds []passwordCredentials, store drawingSto
 		user, userExtractErr := getUserFromContext(c)
 		if userExtractErr != nil {
 			logger.Error().Err(userExtractErr).Str("title", requestData.Title).Msg("failed to extract user from context")
-			c.AbortWithError(500, userExtractErr)
+			c.AbortWithError(http.StatusInternalServerError, userExtractErr)
 			return
 		}
 
 		putDrawingErr := store.PutDrawing(c, requestData.Title, contentReader, user.Username)
 		if putDrawingErr != nil {
 			logger.Error().Err(putDrawingErr).Str("title", requestData.Title).Msg("failed to store drawing %s: %w")
-			c.AbortWithError(500, putDrawingErr)
+			c.AbortWithError(http.StatusInternalServerError, putDrawingErr)
 			return
 		}
-		c.Status(200)
+		c.Status(http.StatusOK)
 	})
 
 	api.GET("/drawing", func(c *gin.Context) {
@@ -100,11 +107,77 @@ func startServer(port int, passwordCreds []passwordCredentials, store drawingSto
 		content, getContentErr := store.GetDrawing(c, title)
 		if getContentErr != nil {
 			logger.Error().Err(getContentErr).Str("title", title).Msg("failed to get drawing content")
-			c.AbortWithError(500, getContentErr)
+			c.AbortWithError(http.StatusInternalServerError, getContentErr)
 			return
 		}
 		logger.Debug().Str("title", title).Int("content length", len(content)).Msg("content found")
-		c.JSON(200, content)
+		c.JSON(http.StatusOK, content)
+	})
+
+	api.DELETE("/drawing/:title", func(c *gin.Context) {
+		logger := zerolog.Ctx(c.Request.Context())
+		title := c.Param("title")
+		if len(title) == 0 {
+			logger.Debug().Msg("Missing 'title' path parameter")
+			c.AbortWithStatus(http.StatusBadRequest)
+			return
+		}
+		user, userExtractErr := getUserFromContext(c)
+		if userExtractErr != nil {
+			logger.Error().Err(userExtractErr).Str("title", title).Msg("failed to extract user from context")
+			c.AbortWithError(http.StatusInternalServerError, userExtractErr)
+			return
+		}
+		err = store.DeleteDrawing(c, title, user.Username)
+		if err != nil {
+			logger.Error().Err(err).Msg("failed to delete the object with the old name")
+			c.AbortWithError(http.StatusInternalServerError, err)
+			return
+		}
+		c.Status(http.StatusOK)
+	})
+
+	api.PATCH("/drawing", func(c *gin.Context) {
+		logger := zerolog.Ctx(c.Request.Context())
+
+		body, readBodyErr := io.ReadAll(c.Request.Body)
+		if readBodyErr != nil {
+			logger.Error().Err(readBodyErr).Msg("failed to read request body")
+			c.AbortWithError(http.StatusInternalServerError, readBodyErr)
+			return
+		}
+		var requestData patchDrawingRequest
+		requestBodyUnmarshalErr := json.Unmarshal(body, &requestData)
+		if requestBodyUnmarshalErr != nil {
+			logger.Error().Err(requestBodyUnmarshalErr).Msg("failed to unmarshal request body")
+			c.AbortWithError(http.StatusInternalServerError, requestBodyUnmarshalErr)
+			return
+		}
+		logger.Debug().Interface("requestData", requestData).Send()
+		switch {
+		case len(requestData.NewTitle) > 0:
+			logger := logger.With().Str("title", requestData.Title).Str("newTitle", requestData.NewTitle).Logger()
+
+			user, userExtractErr := getUserFromContext(c)
+			if userExtractErr != nil {
+				logger.Error().Err(userExtractErr).Str("newTitle", requestData.NewTitle).Msg("failed to extract user from context")
+				c.AbortWithError(http.StatusInternalServerError, userExtractErr)
+				return
+			}
+			err = store.CopyDrawing(c, requestData.Title, requestData.NewTitle, user.Username)
+			if err != nil {
+				logger.Error().Err(err).Msg("failed to create the copy to subsist as the renamed object")
+				c.AbortWithError(http.StatusInternalServerError, err)
+				return
+			}
+			err = store.DeleteDrawing(c, requestData.Title, user.Username)
+			if err != nil {
+				logger.Error().Err(err).Msg("failed to delete the object with the old name")
+				c.AbortWithError(http.StatusInternalServerError, err)
+				return
+			}
+			c.Status(http.StatusOK)
+		}
 	})
 
 	http.Serve(listener, rootEngine)
