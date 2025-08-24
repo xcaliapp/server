@@ -106,14 +106,19 @@ func getLogger() zerolog.Logger {
 }
 
 const (
-	HandlerLogger string = "handler"
-	ServiceLogger string = "service"
-	UnitLogger    string = "unit"
-	MethodLogger  string = "method"
+	HandlerLogger  string = "handler"
+	ServiceLogger  string = "service"
+	UnitLogger     string = "unit"
+	FunctionLogger string = "function"
+	MethodLogger   string = "method"
 )
 
 func CreateUnitLogger(logger zerolog.Logger, unitName string) zerolog.Logger {
 	return logger.With().Str(UnitLogger, unitName).Logger()
+}
+
+func CreateFunctionLogger(logger zerolog.Logger, functionName string) zerolog.Logger {
+	return logger.With().Str(FunctionLogger, functionName).Logger()
 }
 
 func CreateMethodLogger(logger zerolog.Logger, unitName string) zerolog.Logger {
