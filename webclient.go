@@ -32,11 +32,15 @@ func AssetHandler(prefix, root string, log zerolog.Logger) http.Handler {
 		// If we can't find the asset, return the default index.html
 		// content
 		f, err := Assets.Open(assetPath)
-		logger.Debug().Err(err).Msg("asset retrieval result")
+		if err != nil {
+			logger.Debug().Err(err).Msg("asset retrieval result")
+		}
 		if os.IsNotExist(err) {
 			logger.Debug().Msg("return the default index.html")
 			f, err = Assets.Open(path.Join(root, "index.html"))
-			logger.Error().Err(err).Msg("failed to open index.html")
+			if err != nil {
+				logger.Error().Err(err).Msg("failed to open index.html")
+			}
 			return f, err
 		}
 
