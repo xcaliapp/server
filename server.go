@@ -6,9 +6,11 @@ import (
 	"encoding/gob"
 	"encoding/json"
 	"fmt"
+	"gitstore"
 	"io"
 	"net"
 	"net/http"
+	"s3store"
 	"strings"
 
 	"github.com/gin-contrib/sessions"
@@ -17,25 +19,43 @@ import (
 	"github.com/rs/zerolog"
 )
 
-type drawingStore interface {
-	PutDrawing(ctx context.Context, title string, contentReader io.Reader, modifiedBy string) error
+type drawingList map[string]string
+
+type drawingRepo interface {
+	PutDrawing(ctx context.Context, key string, contentReader io.Reader, modifiedBy string) error
 	CopyDrawing(ctx context.Context, sourceId string, destinationId string, modifiedBy string) error
 	ListDrawings(ctx context.Context) (map[string]string, error)
-	GetDrawing(ctx context.Context, title string) (string, error)
-	DeleteDrawing(ctx context.Context, newTitle string, modifiedBy string) error
+	GetDrawing(ctx context.Context, key string) (string, error)
+	DeleteDrawing(ctx context.Context, key string, modifiedBy string) error
+}
+
+type drawingRepos map[string]drawingRepo
+
+func (repo drawingRepos) repoWithAlias(alias string) drawingRepo {
+	return repo[alias]
+}
+
+type server struct {
+	ctx    context.Context
+	config options
+	stores drawingRepos
 }
 
 type putDrawingRequest struct {
 	Content string `json:"content"`
 }
 
-func startServer(port int, passwordCreds []passwordCredentials, store drawingStore) {
-	h := handlerFactory{store}
+func (s *server) start() {
+	h := handlerFactory{
+		s.stores,
+	}
+
+	port := s.config.port
 
 	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 	if err != nil {
 		portSpec := fmt.Sprintf("port %d", port)
-		if port == 0 {
+		if s.config.port == 0 {
 			portSpec = "an ephemeral port"
 		}
 		panic(fmt.Sprintf("Error while starting to listen at %s: %v", portSpec, err))
@@ -47,7 +67,7 @@ func startServer(port int, passwordCreds []passwordCredentials, store drawingSto
 	rootEngine.Use(sessions.Sessions("mysession", sessionStore))
 	rootEngine.NoRoute(gin.WrapH(AssetHandler("/", "webclient_dist", getLogger())))
 	gob.Register(User{})
-	rootEngine.Use(checkBasicAuthentication(basicConfig{passwordCreds: passwordCreds}))
+	rootEngine.Use(checkBasicAuthentication(basicConfig{passwordCreds: s.config.passwordCreds}))
 
 	rootEngine.GET("/drawings", gin.WrapH(AssetHandler("/", "webclient_dist", getLogger())))
 
@@ -78,20 +98,32 @@ func getUserFromContext(c *gin.Context) (*User, error) {
 }
 
 type handlerFactory struct {
-	store drawingStore
+	repos drawingRepos
+}
+
+func addListFromStoreToFullList(sourceAlias string, list drawingList, fullList drawingList) {
+	for key, title := range list {
+		fullList[fmt.Sprintf("%s-%s", sourceAlias, key)] = title
+	}
 }
 
 func (hf *handlerFactory) getDrawingListHandler() func(c *gin.Context) {
 	return func(c *gin.Context) {
 		logger := zerolog.Ctx(c.Request.Context())
 
-		titles, listErr := hf.store.ListDrawings(c)
-		if listErr != nil {
-			logger.Error().Err(listErr).Msg("failed to list drawing titles")
-			c.AbortWithError(http.StatusInternalServerError, listErr)
-			return
+		fullList := drawingList{}
+
+		for alias, store := range hf.repos {
+			list, listErr := store.ListDrawings(c)
+			addListFromStoreToFullList(alias, list, fullList)
+			if listErr != nil {
+				logger.Error().Err(listErr).Msg("failed to list drawing titles")
+				c.AbortWithError(http.StatusInternalServerError, listErr)
+				return
+			}
 		}
-		c.JSON(http.StatusOK, titles)
+
+		c.JSON(http.StatusOK, fullList)
 	}
 }
 
@@ -111,7 +143,12 @@ func (hf *handlerFactory) updateDrawing() func(c *gin.Context) {
 	}
 }
 
-func (hf *handlerFactory) putDrawing(c *gin.Context, drawingId string) {
+func splitAliasId(aliasKey string) (string, string) {
+	split := strings.Split(aliasKey, "-")
+	return split[0], split[1]
+}
+
+func (hf *handlerFactory) putDrawing(c *gin.Context, idParam string) {
 	logger := zerolog.Ctx(c.Request.Context())
 
 	body, readBodyErr := io.ReadAll(c.Request.Body)
@@ -132,14 +169,17 @@ func (hf *handlerFactory) putDrawing(c *gin.Context, drawingId string) {
 
 	user, userExtractErr := getUserFromContext(c)
 	if userExtractErr != nil {
-		logger.Error().Err(userExtractErr).Str("id", drawingId).Msg("failed to extract user from context")
+		logger.Error().Err(userExtractErr).Str("id", idParam).Msg("failed to extract user from context")
 		c.AbortWithError(http.StatusInternalServerError, userExtractErr)
 		return
 	}
 
-	putDrawingErr := hf.store.PutDrawing(c, drawingId, contentReader, user.Username)
+	alias, drawingId := splitAliasId(idParam)
+
+	repo := hf.repos.repoWithAlias(alias)
+	putDrawingErr := repo.PutDrawing(c, drawingId, contentReader, user.Username)
 	if putDrawingErr != nil {
-		logger.Error().Err(putDrawingErr).Str("id", drawingId).Msg("failed to store drawing %s: %w")
+		logger.Error().Err(putDrawingErr).Str("id", idParam).Msg("failed to store drawing %s: %w")
 		c.AbortWithError(http.StatusInternalServerError, putDrawingErr)
 		return
 	}
@@ -149,14 +189,17 @@ func (hf *handlerFactory) getDrawingContent() func(c *gin.Context) {
 	return func(c *gin.Context) {
 		logger := zerolog.Ctx(c.Request.Context())
 
-		id := c.Param("id")
-		content, getContentErr := hf.store.GetDrawing(c, id)
+		idParam := c.Param("id")
+		alias, drawingId := splitAliasId(idParam)
+
+		repo := hf.repos.repoWithAlias(alias)
+		content, getContentErr := repo.GetDrawing(c, drawingId)
 		if getContentErr != nil {
-			logger.Error().Err(getContentErr).Str("id", id).Msg("failed to get drawing content")
+			logger.Error().Err(getContentErr).Str("id", idParam).Msg("failed to get drawing content")
 			c.AbortWithError(http.StatusInternalServerError, getContentErr)
 			return
 		}
-		logger.Debug().Str("id", id).Int("content length", len(content)).Msg("content found")
+		logger.Debug().Str("id", idParam).Int("content length", len(content)).Msg("content found")
 		c.JSON(http.StatusOK, content)
 	}
 }
@@ -164,19 +207,23 @@ func (hf *handlerFactory) getDrawingContent() func(c *gin.Context) {
 func (hf *handlerFactory) deleteDrawing() func(c *gin.Context) {
 	return func(c *gin.Context) {
 		logger := zerolog.Ctx(c.Request.Context())
-		id := c.Param("id")
-		if len(id) == 0 {
+		idParam := c.Param("id")
+		if len(idParam) == 0 {
 			logger.Debug().Msg("Missing 'id' path parameter")
 			c.AbortWithStatus(http.StatusBadRequest)
 			return
 		}
 		user, userExtractErr := getUserFromContext(c)
 		if userExtractErr != nil {
-			logger.Error().Err(userExtractErr).Str("id", id).Msg("failed to extract user from context")
+			logger.Error().Err(userExtractErr).Str("id", idParam).Msg("failed to extract user from context")
 			c.AbortWithError(http.StatusInternalServerError, userExtractErr)
 			return
 		}
-		err := hf.store.DeleteDrawing(c, id, user.Username)
+
+		alias, drawingId := splitAliasId(idParam)
+		repo := hf.repos.repoWithAlias(alias)
+
+		err := repo.DeleteDrawing(c, drawingId, user.Username)
 		if err != nil {
 			logger.Error().Err(err).Msg("failed to delete the object with the old name")
 			c.AbortWithError(http.StatusInternalServerError, err)
@@ -184,4 +231,52 @@ func (hf *handlerFactory) deleteDrawing() func(c *gin.Context) {
 		}
 		c.Status(http.StatusOK)
 	}
+}
+
+func newDrawingStore(ctx context.Context, dset drawingSet) drawingRepo {
+	var repo drawingRepo
+
+	switch dset.storeType {
+	case LOCAL_GIT:
+		logger := getLogger().With().Interface("drawingSet", dset).Logger()
+		blobStore, repoErr := gitstore.NewLocalGitStore(dset.root, dset.path, &logger)
+		if repoErr != nil {
+			panic(repoErr)
+		}
+		repo = blobStore
+	case GITLAB:
+		panic("Not yet supported")
+	case S3:
+		blobStore, blobStoreErr := s3store.NewDrawingStore(ctx, "test-xcali-backend")
+		if blobStoreErr != nil {
+			panic(fmt.Sprintf("failed to created S3 store: %v", blobStoreErr))
+		}
+		repo = blobStore
+	default:
+		panic(fmt.Errorf("invalid drawingSet: %v", dset))
+	}
+
+	return repo
+}
+
+func newServer(dsets drawingSets) (*server, error) {
+	ctx := context.Background()
+
+	stores := drawingRepos{}
+	for alias, dset := range dsets {
+		stores[alias] = newDrawingStore(ctx, dset)
+	}
+
+	return &server{
+		ctx: ctx,
+		config: options{
+			getServerPort(),
+			[]passwordCredentials{{
+				Username: getUsername(),
+				Password: "pass",
+			}},
+			LOCAL_GIT,
+		},
+		stores: stores,
+	}, nil
 }
