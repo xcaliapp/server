@@ -1,63 +1,28 @@
 package main
 
 import (
-	"context"
-	"fmt"
-	"gitstore"
 	"net/http"
-	"s3store"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/rs/xid"
 )
 
-type server struct {
-	ctx    context.Context
-	config options
-}
-
-func newServer() server {
-	return server{
-		ctx: context.Background(),
-		config: options{
-			getServerPort(),
-			[]passwordCredentials{{
-				Username: getUsername(),
-				Password: "pass",
-			}},
-			LOCAL_GIT,
-			getDrawingStoreLocation(),
-		},
-	}
-}
-
 func main() {
-	s := newServer()
-	logger := getLogger()
-	logger.Info().Int("port", s.config.port).Msg("starting server...")
-	startServer(s.config.port, s.config.passwordCreds, newDrawingStore(s))
-}
-
-func newDrawingStore(s server) drawingStore {
-	switch s.config.drawingStoreTyp {
-	case LOCAL_GIT:
-		logger := getLogger().With().Str("repoType", "LOCAL_GIT").Str("repoPath", s.config.drawingStoreKey).Logger()
-		repo, repoErr := gitstore.NewLocalGitStore(s.config.drawingStoreKey, &logger)
-		if repoErr != nil {
-			panic(repoErr)
-		}
-		return repo
-	case GITLAB:
-		panic("Not yet supported")
-	case S3:
-		repo, repoErr := s3store.NewDrawingStore(s.ctx, "test-xcali-backend")
-		if repoErr != nil {
-			panic(fmt.Sprintf("failed to created S3 store: %v", repoErr))
-		}
-		return repo
+	draRepoConfigs, err := getDrawingRepoConfigs()
+	if err != nil {
+		panic(err)
 	}
-	panic(fmt.Errorf("invalid drawingStoreTyp: %v", s.config.drawingStoreTyp))
+
+	s, err := newServer(draRepoConfigs)
+	if err != nil {
+		panic(err)
+	}
+
+	logger := getLogger()
+	logger.Info().Interface("drawingRepos", draRepoConfigs).Int("port", s.config.port).Msg("starting server...")
+
+	s.start()
 }
 
 func RequestLogger(g *gin.Context) {

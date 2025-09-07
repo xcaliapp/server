@@ -5,6 +5,9 @@ vars:
   WEBCLIENT_DIST: '{{ .WEBCLIENT_DIST | default "../webclient/dist" }}'
 
 tasks:
+  test:
+    cmds:
+      - go test -parallel 1 -v -timeout 60s ./...
   plain:
     cmds:
       - |
