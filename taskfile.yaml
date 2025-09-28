@@ -10,8 +10,10 @@ tasks:
       - go test -parallel 1 -v -timeout 60s ./...
   plain:
     cmds:
-      - |
-        go build -o xcaliapp-backend
+      - go build -o xcaliapp-backend
+      - cmd: mv xcaliapp-backend xcaliapp-backend.exe
+        platforms: [windows]
+
   with-webclient:
     cmds:
       - |
@@ -26,4 +28,14 @@ tasks:
     cmds:
       - task: plain
       - |
-        ./xcaliapp-backend
+        LOG_LEVEL=debug \
+          XCALIAPP_USERNAME="peter.dunay.kovacs@gmail.com" \
+          SERVER_PORT=8888 \
+          XCALIAPP_DRAWINGREPO_LIST="xcaliapp:XCalidraw Application,wsgw:WebSocket Gateway" \
+          XCALIAPP_DRAWINGREPO_xcaliapp_STORETYPE=LOCAL_GIT \
+          XCALIAPP_DRAWINGREPO_xcaliapp_ROOT=C:\Users\pkovacs\gitlab\diagrams\xcalidraw \
+          XCALIAPP_DRAWINGREPO_xcaliapp_PATH=/ \
+          XCALIAPP_DRAWINGREPO_wsgw_STORETYPE=LOCAL_GIT \
+          XCALIAPP_DRAWINGREPO_wsgw_ROOT=C:\Users\pkovacs\github\pdkovacs\wsgw \
+          XCALIAPP_DRAWINGREPO_wsgw_PATH=doc/design/diagrams \
+          ./xcaliapp-backend

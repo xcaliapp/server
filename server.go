@@ -6,11 +6,9 @@ import (
 	"encoding/gob"
 	"encoding/json"
 	"fmt"
-	"gitstore"
 	"io"
 	"net"
 	"net/http"
-	"s3store"
 	"strings"
 
 	"github.com/gin-contrib/sessions"
@@ -143,12 +141,12 @@ func (hf *handlerFactory) getDrawingListsHandler() func(c *gin.Context) {
 
 		for repoRef, store := range hf.repos {
 			list, listErr := store.ListDrawings(c)
-			addListFromStoreToFullList(repoRef, list, fullList)
 			if listErr != nil {
 				logger.Error().Err(listErr).Msg("failed to list drawing titles")
 				c.AbortWithError(http.StatusInternalServerError, listErr)
 				return
 			}
+			addListFromStoreToFullList(repoRef, list, fullList)
 		}
 
 		c.JSON(http.StatusOK, fullList)
@@ -276,32 +274,6 @@ func (hf *handlerFactory) deleteDrawing() func(c *gin.Context) {
 		}
 		c.Status(http.StatusOK)
 	}
-}
-
-func newDrawingStore(ctx context.Context, repoConfig drawingRepoConfig) drawingRepo {
-	var repo drawingRepo
-
-	switch repoConfig.storeType {
-	case LOCAL_GIT:
-		logger := getLogger().With().Interface("drawingRepoDescriptor", repoConfig).Logger()
-		blobStore, repoErr := gitstore.NewLocalGitStore(repoConfig.root, repoConfig.path, &logger)
-		if repoErr != nil {
-			panic(repoErr)
-		}
-		repo = blobStore
-	case GITLAB:
-		panic("Not yet supported")
-	case S3:
-		blobStore, blobStoreErr := s3store.NewDrawingStore(ctx, "test-xcali-backend")
-		if blobStoreErr != nil {
-			panic(fmt.Sprintf("failed to created S3 store: %v", blobStoreErr))
-		}
-		repo = blobStore
-	default:
-		panic(fmt.Errorf("invalid drawingRepoDescriptor: %v", repoConfig))
-	}
-
-	return repo
 }
 
 func newServer(repoConfigs drawingReposConfigs) (*server, error) {
