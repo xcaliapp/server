@@ -33,9 +33,9 @@ tasks:
           SERVER_PORT=8888 \
           XCALIAPP_DRAWINGREPO_LIST="xcaliapp:XCalidraw Application,wsgw:WebSocket Gateway" \
           XCALIAPP_DRAWINGREPO_xcaliapp_STORETYPE=LOCAL_GIT \
-          XCALIAPP_DRAWINGREPO_xcaliapp_ROOT=C:\Users\pkovacs\gitlab\diagrams\xcalidraw \
+          XCALIAPP_DRAWINGREPO_xcaliapp_ROOT=${HOME}/gitlab/diagrams/xcalidraw \
           XCALIAPP_DRAWINGREPO_xcaliapp_PATH=/ \
           XCALIAPP_DRAWINGREPO_wsgw_STORETYPE=LOCAL_GIT \
-          XCALIAPP_DRAWINGREPO_wsgw_ROOT=C:\Users\pkovacs\github\pdkovacs\wsgw \
+          XCALIAPP_DRAWINGREPO_wsgw_ROOT=${HOME}/github/pdkovacs/wsgw \
           XCALIAPP_DRAWINGREPO_wsgw_PATH=doc/design/diagrams \
           ./xcaliapp-backend

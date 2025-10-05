@@ -93,6 +93,7 @@ func (s *server) start() {
 	rootEngine.GET("/drawings", gin.WrapH(AssetHandler("/", "webclient_dist", getLogger())))
 
 	api := rootEngine.Group("/api")
+	api.GET("/drawingRepositories", h.getDrawingRepositories())
 	api.GET("/drawings", h.getDrawingListsHandler())
 	api.POST("/drawing", h.createNewDrawing())
 	api.PUT("/drawing/:id", h.updateDrawing())
@@ -131,6 +132,16 @@ func addListFromStoreToFullList(repoRef drawingRepoRef, list map[drawingId]drawi
 		})
 	}
 	fullList[repoRef.Name] = content
+}
+
+func (hf *handlerFactory) getDrawingRepositories() func(c *gin.Context) {
+	return func(c *gin.Context) {
+		repoList := []drawingRepoRef{}
+		for key := range hf.repos {
+			repoList = append(repoList, key)
+		}
+		c.JSON(http.StatusOK, repoList)
+	}
 }
 
 func (hf *handlerFactory) getDrawingListsHandler() func(c *gin.Context) {
