@@ -24,6 +24,10 @@ tasks:
         cp -a {{.WEBCLIENT_DIST}}/* webclient_dist/
         output_file="xcaliapp_${GOOS}_${GOARCH}"
         go build -o $output_file
+  watch:
+    cmds:
+      - |
+        ./watch.sh
   run:
     cmds:
       - task: plain
@@ -33,8 +37,8 @@ tasks:
           SERVER_PORT=8888 \
           XCALIAPP_DRAWINGREPO_LIST="xcaliapp:XCalidraw Application,wsgw:WebSocket Gateway" \
           XCALIAPP_DRAWINGREPO_xcaliapp_STORETYPE=LOCAL_GIT \
-          XCALIAPP_DRAWINGREPO_xcaliapp_ROOT=${HOME}/gitlab/diagrams/xcalidraw \
-          XCALIAPP_DRAWINGREPO_xcaliapp_PATH=/ \
+          XCALIAPP_DRAWINGREPO_xcaliapp_ROOT=${HOME}/workspace/xcaliapp/main \
+          XCALIAPP_DRAWINGREPO_xcaliapp_PATH=doc/design/diagrams \
           XCALIAPP_DRAWINGREPO_wsgw_STORETYPE=LOCAL_GIT \
           XCALIAPP_DRAWINGREPO_wsgw_ROOT=${HOME}/github/pdkovacs/wsgw \
           XCALIAPP_DRAWINGREPO_wsgw_PATH=doc/design/diagrams \
