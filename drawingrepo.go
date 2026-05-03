@@ -7,7 +7,7 @@ import (
 	"s3store"
 )
 
-func newDrawingStore(ctx context.Context, repoConfig drawingRepoConfig) drawingRepo {
+func newDrawingRepo(ctx context.Context, repoConfig drawingRepoConfig) drawingRepo {
 	var repo drawingRepo
 
 	switch repoConfig.storeType {

@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"vcblobstore"
 
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-contrib/sessions/memstore"
@@ -26,6 +27,9 @@ type drawingRepo interface {
 	ListDrawings(ctx context.Context) (map[drawingId]drawingTitle, error)
 	GetDrawing(ctx context.Context, key string) (string, error)
 	DeleteDrawing(ctx context.Context, key string, modifiedBy string) error
+	ListVersions(ctx context.Context, key string) ([]vcblobstore.BlobVersion, error)
+	GetVersion(ctx context.Context, key string, versionID string) (string, error)
+	RestoreVersion(ctx context.Context, key string, versionID string, modifiedBy string) (string, error)
 }
 
 type drawingRepoName string
@@ -292,7 +296,7 @@ func newServer(repoConfigs drawingReposConfigs) (*server, error) {
 
 	repos := drawingRepos{}
 	for name, repoConfig := range repoConfigs {
-		repos[drawingRepoRef{drawingRepoName(name), drawingRepoLabel(repoConfig.label)}] = newDrawingStore(ctx, repoConfig)
+		repos[drawingRepoRef{drawingRepoName(name), drawingRepoLabel(repoConfig.label)}] = newDrawingRepo(ctx, repoConfig)
 	}
 
 	return &server{
