@@ -99,10 +99,10 @@ func (s *server) start() {
 	api := rootEngine.Group("/api")
 	api.GET("/drawingRepositories", h.getDrawingRepositories())
 	api.GET("/drawings", h.getDrawingListsHandler())
-	api.POST("/drawing", h.createNewDrawing())
-	api.PUT("/drawing/:id", h.updateDrawing())
-	api.GET("/drawing/:id", h.getDrawingContent())
-	api.DELETE("/drawing/:id", h.deleteDrawing())
+	api.POST("/drawing/:repo", h.createNewDrawing())
+	api.PUT("/drawing/:repo/:id", h.updateDrawing())
+	api.GET("/drawing/:repo/:id", h.getDrawingContent())
+	api.DELETE("/drawing/:repo/:id", h.deleteDrawing())
 
 	http.Serve(listener, rootEngine)
 }
@@ -171,7 +171,7 @@ func (hf *handlerFactory) getDrawingListsHandler() func(c *gin.Context) {
 func (hf *handlerFactory) createNewDrawing() func(c *gin.Context) {
 	return func(c *gin.Context) {
 		id := rand.Text()
-		hf.putDrawing(c, id)
+		hf.putDrawing(c, c.Param("repo"), id)
 		c.JSON(200, id)
 	}
 }
@@ -179,18 +179,13 @@ func (hf *handlerFactory) createNewDrawing() func(c *gin.Context) {
 func (hf *handlerFactory) updateDrawing() func(c *gin.Context) {
 	return func(c *gin.Context) {
 		id := c.Param("id")
-		hf.putDrawing(c, id)
+		hf.putDrawing(c, c.Param("repo"), id)
 		c.JSON(200, id)
 	}
 }
 
-func splitRepoNameFromId(aliasKey string) (string, string) {
-	split := strings.Split(aliasKey, "-")
-	return split[0], split[1]
-}
-
-func (hf *handlerFactory) putDrawing(c *gin.Context, idParam string) {
-	logger := zerolog.Ctx(c.Request.Context())
+func (hf *handlerFactory) putDrawing(c *gin.Context, drawingRepo string, drawingId string) {
+	logger := zerolog.Ctx(c.Request.Context()).With().Str("drawingRepo", drawingRepo).Str("drawingId", drawingId).Logger()
 
 	body, readBodyErr := io.ReadAll(c.Request.Body)
 	if readBodyErr != nil {
@@ -210,23 +205,21 @@ func (hf *handlerFactory) putDrawing(c *gin.Context, idParam string) {
 
 	user, userExtractErr := getUserFromContext(c)
 	if userExtractErr != nil {
-		logger.Error().Err(userExtractErr).Str("id", idParam).Msg("failed to extract user from context")
+		logger.Error().Err(userExtractErr).Msg("failed to extract user from context")
 		c.AbortWithError(http.StatusInternalServerError, userExtractErr)
 		return
 	}
 
-	repoName, drawingId := splitRepoNameFromId(idParam)
-
-	repo, hasRepo := hf.repos.getRepo(drawingRepoName(repoName))
+	repo, hasRepo := hf.repos.getRepo(drawingRepoName(drawingRepo))
 	if !hasRepo {
-		logger.Error().Str("id", idParam).Str("repoName", repoName).Msg("failed to find repo")
+		logger.Error().Msg("failed to find repo")
 		c.AbortWithStatus(http.StatusInternalServerError)
 		return
 	}
 
 	putDrawingErr := repo.PutDrawing(c, drawingId, contentReader, user.Username)
 	if putDrawingErr != nil {
-		logger.Error().Err(putDrawingErr).Str("id", idParam).Msg("failed to store drawing %s: %w")
+		logger.Error().Err(putDrawingErr).Msg("failed to store drawing %s: %w")
 		c.AbortWithError(http.StatusInternalServerError, putDrawingErr)
 		return
 	}
@@ -234,49 +227,51 @@ func (hf *handlerFactory) putDrawing(c *gin.Context, idParam string) {
 
 func (hf *handlerFactory) getDrawingContent() func(c *gin.Context) {
 	return func(c *gin.Context) {
-		logger := zerolog.Ctx(c.Request.Context())
+		repoName := c.Param("repo")
+		drawingId := c.Param("id")
 
-		idParam := c.Param("id")
-		repoName, drawingId := splitRepoNameFromId(idParam)
+		logger := zerolog.Ctx(c.Request.Context()).With().Str("repoName", drawingId).Str("drawingId", drawingId).Logger()
 
 		repo, hasRepo := hf.repos.getRepo(drawingRepoName(repoName))
 		if !hasRepo {
-			logger.Error().Str("id", idParam).Str("repoName", repoName).Msg("failed to find repo")
+			logger.Error().Msg("failed to find repo")
 			c.AbortWithStatus(http.StatusInternalServerError)
 			return
 		}
 
 		content, getContentErr := repo.GetDrawing(c, drawingId)
 		if getContentErr != nil {
-			logger.Error().Err(getContentErr).Str("id", idParam).Msg("failed to get drawing content")
+			logger.Error().Err(getContentErr).Msg("failed to get drawing content")
 			c.AbortWithError(http.StatusInternalServerError, getContentErr)
 			return
 		}
-		logger.Debug().Str("id", idParam).Int("content length", len(content)).Msg("content found")
+		logger.Debug().Int("content length", len(content)).Msg("content found")
 		c.JSON(http.StatusOK, content)
 	}
 }
 
 func (hf *handlerFactory) deleteDrawing() func(c *gin.Context) {
 	return func(c *gin.Context) {
-		logger := zerolog.Ctx(c.Request.Context())
-		idParam := c.Param("id")
-		if len(idParam) == 0 {
+		repoName := c.Param("repo")
+		drawingId := c.Param("id")
+
+		logger := zerolog.Ctx(c.Request.Context()).With().Str("repoName", drawingId).Str("drawingId", drawingId).Logger()
+
+		if len(drawingId) == 0 {
 			logger.Debug().Msg("Missing 'id' path parameter")
 			c.AbortWithStatus(http.StatusBadRequest)
 			return
 		}
 		user, userExtractErr := getUserFromContext(c)
 		if userExtractErr != nil {
-			logger.Error().Err(userExtractErr).Str("id", idParam).Msg("failed to extract user from context")
+			logger.Error().Err(userExtractErr).Msg("failed to extract user from context")
 			c.AbortWithError(http.StatusInternalServerError, userExtractErr)
 			return
 		}
 
-		repoName, drawingId := splitRepoNameFromId(idParam)
 		repo, hasRepo := hf.repos.getRepo(drawingRepoName(repoName))
 		if !hasRepo {
-			logger.Error().Str("id", idParam).Str("repoName", repoName).Msg("failed to find repo")
+			logger.Error().Str("repoName", repoName).Msg("failed to find repo")
 			c.AbortWithStatus(http.StatusInternalServerError)
 			return
 		}

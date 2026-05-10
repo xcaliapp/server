@@ -43,3 +43,63 @@ tasks:
           XCALIAPP_DRAWINGREPO_wsgw_ROOT=${HOME}/github/pdkovacs/wsgw \
           XCALIAPP_DRAWINGREPO_wsgw_PATH=doc/design/diagrams \
           ./xcaliapp-backend
+
+  start-minio:
+    desc: Start a local MinIO container and ensure the xcaliapp bucket exists.
+    vars:
+      MINIO_CONTAINER: xcaliapp-minio
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_BUCKET: test-xcali-backend
+    cmds:
+      - |
+        set -e
+        if [ -z "$(docker ps -q -f name=^{{.MINIO_CONTAINER}}$)" ]; then
+          if [ -n "$(docker ps -aq -f name=^{{.MINIO_CONTAINER}}$)" ]; then
+            docker rm -f {{.MINIO_CONTAINER}} >/dev/null
+          fi
+          docker run -d --name {{.MINIO_CONTAINER}} \
+            -p 0:9000 -p 0:9001 \
+            -e MINIO_ROOT_USER={{.MINIO_ROOT_USER}} \
+            -e MINIO_ROOT_PASSWORD={{.MINIO_ROOT_PASSWORD}} \
+            quay.io/minio/minio server /data --console-address ":9001" >/dev/null
+        fi
+
+        api_port=$(docker port {{.MINIO_CONTAINER}} 9000/tcp | head -n1 | awk -F: '{print $NF}')
+        endpoint="http://127.0.0.1:${api_port}"
+
+        for _ in $(seq 1 30); do
+          if curl -fsS "${endpoint}/minio/health/ready" >/dev/null 2>&1; then break; fi
+          sleep 1
+        done
+
+        docker run --rm --network host \
+          -e MC_HOST_local="http://{{.MINIO_ROOT_USER}}:{{.MINIO_ROOT_PASSWORD}}@127.0.0.1:${api_port}" \
+          quay.io/minio/mc mb -p local/{{.MINIO_BUCKET}} >/dev/null 2>&1 || true
+
+        console_port=$(docker port {{.MINIO_CONTAINER}} 9001/tcp | head -n1 | awk -F: '{print $NF}')
+        echo "MinIO API:     ${endpoint}"
+        echo "MinIO Console: http://127.0.0.1:${console_port}"
+        echo "Bucket:        {{.MINIO_BUCKET}}"
+
+  with-minio:
+    desc: Run the backend configured against the local MinIO from start-minio.
+    deps: [start-minio]
+    cmds:
+      - task: plain
+      - |
+        set -e
+        api_port=$(docker port xcaliapp-minio 9000/tcp | head -n1 | awk -F: '{print $NF}')
+        endpoint="http://127.0.0.1:${api_port}"
+
+        AWS_ENDPOINT_URL="${endpoint}" \
+        AWS_ENDPOINT_URL_S3="${endpoint}" \
+        AWS_ACCESS_KEY_ID=minioadmin \
+        AWS_SECRET_ACCESS_KEY=minioadmin \
+        AWS_REGION=us-east-1 \
+        LOG_LEVEL=debug \
+          XCALIAPP_USERNAME="peter.dunay.kovacs@gmail.com" \
+          SERVER_PORT=8888 \
+          XCALIAPP_DRAWINGREPO_LIST="xcaliapp:XCalidraw Application" \
+          XCALIAPP_DRAWINGREPO_xcaliapp_STORETYPE=S3 \
+          ./xcaliapp-backend
